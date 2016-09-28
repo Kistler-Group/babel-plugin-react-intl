@@ -153,6 +153,24 @@ export default function ({ types: t }) {
     return importedNames.some((name) => customReferencesImport.apply(path, [mod, name, normalizer]));
   }
 
+  function isSuperClassSupported(superClass) {
+    if (t.isMemberExpression(superClass)) {
+      if (superClass.object.name === 'React' && superClass.property.name === 'Component') {
+        return true;
+      }
+    }
+
+    if (t.isIdentifier(superClass)) {
+      const { name } = superClass
+      // @todo Check if 'Component' is imported from react package.
+      if (includes(['Component', 'SbBaseComponent'], name)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function processClassComponent(path, state) {
     const declaration = path.node.declaration;
 
@@ -164,6 +182,11 @@ export default function ({ types: t }) {
     const className = declaration.id.name;
     const newClassName = '_' + className;
 
+    // We can't inject react-intl into our base component, it's used for extending other (injected) classes.
+    if (className === 'SbBaseComponent') {
+      return;
+    }
+
     consoleLog('------ class:', className);
 
     const { superClass } = declaration;
@@ -173,20 +196,8 @@ export default function ({ types: t }) {
     }
 
     // @todo Very naive implementation, handle also extends of React.Component
-    if (t.isIdentifier(superClass) && superClass.name !== 'Component') {
-      consoleLog('------------ ignored:', 'Is not extending React.Component');
-      return;
-    }
-
-    // @todo Very naive implementation, handle also extends of React.Component
-    if (t.isMemberExpression(superClass) && superClass.object.name != 'React' && superClass.property.name != 'Component') {
-      consoleLog('------------ ignored:', 'Is not extending React.Component');
-      return;
-    }
-
-    if (className === 'SbBaseComponent') {
-      // @todo Implement!
-      consoleLog('------------ ignored:', 'Extends SbBaseComponent (not supported yet).');
+    if (!isSuperClassSupported(superClass)) {
+      consoleLog('------------ ignored:', 'Is not extending supported superclass.');
       return;
     }
 

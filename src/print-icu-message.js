@@ -31,15 +31,15 @@ function printICUMessage(ast) {
         }
 
         switch (getArgumentType(node.format)) {
-        case 'number':
-        case 'date':
-        case 'time':
-            return printSimpleFormatASTNode(node);
+            case 'number':
+            case 'date':
+            case 'time':
+                return printSimpleFormatASTNode(node);
 
-        case 'plural':
-        case 'selectordinal':
-        case 'select':
-            return printOptionalFormatASTNode(node);
+            case 'plural':
+            case 'selectordinal':
+            case 'select':
+                return printOptionalFormatASTNode(node);
         }
     });
 
