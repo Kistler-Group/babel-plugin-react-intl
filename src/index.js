@@ -378,7 +378,7 @@ export default function ({ types: t }) {
       false
     ); // result: this.props
 
-    return classType == CLASS_TYPES.CLASS ? thisProps : t.identifier('props.intl.formatMessage');
+    return classType == CLASS_TYPES.CLASS ? thisProps : t.identifier('typeof props != \'undefined\' ? props.intl.formatMessage : null');
   }
 
   function consoleLog(text) {
