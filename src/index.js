@@ -7,19 +7,21 @@
 import * as p from 'path';
 import {writeFileSync} from 'fs';
 import {sync as mkdirpSync} from 'mkdirp';
-import { includes, last, head } from 'lodash';
+import {includes, last, head} from 'lodash';
 import printICUMessage from './print-icu-message';
+import { colors } from 'colors';
 
 const COMPONENT_NAMES = [
   'FormattedMessage',
   'FormattedHTMLMessage',
 ];
 
-const FUNCTION_NAMES = [
-  'translate',
-];
+const TRANSLATE_FUNCTION_NAME = 'translate';
+const TRANSLATE_MODULE_SOURCE_NAME = 'skybase-core/utils/translate';
 
-const DEFAULT_MODULE_SOURCE_NAME = 'skybase-core/utils/translate';
+const DEFINE_MESSAGES_FUNCTION_NAME = 'defineMessages';
+const DEFINE_MESSAGES_MODULE_SOURCE_NAME = 'skybase-core/utils/define-messages';
+
 const DEFAULT_REACT_INTL_SOURCE_NAME = 'react-intl';
 const DESCRIPTOR_PROPS = new Set(['id', 'description']);
 
@@ -36,11 +38,7 @@ let classType = null;
 
 const developmentMode = process.env['NODE_ENV'] === 'development';
 
-export default function ({ types: t }) {
-
-  function getModuleSourceName(opts, defaultSource = DEFAULT_MODULE_SOURCE_NAME) {
-    return opts.moduleSourceName || defaultSource;
-  }
+export default function ({types: t}) {
 
   function storeMessage({id, description}, path, state) {
     const {opts, reactIntl} = state;
@@ -81,7 +79,7 @@ export default function ({ types: t }) {
       return false;
     }
 
-    const { path } = binding;
+    const {path} = binding;
     const parent = path.parentPath;
 
     if (!parent.isImportDeclaration()) {
@@ -161,7 +159,7 @@ export default function ({ types: t }) {
     }
 
     if (t.isIdentifier(superClass)) {
-      const { name } = superClass
+      const {name} = superClass
       // @todo Check if 'Component' is imported from react package.
       if (includes(['Component', 'SbBaseComponent'], name)) {
         return true;
@@ -187,17 +185,17 @@ export default function ({ types: t }) {
       return;
     }
 
-    consoleLog('------ class:', className);
+    consoleLog('  > Object:', className.yellow);
 
-    const { superClass } = declaration;
+    const {superClass} = declaration;
     if (!superClass) {
-      consoleLog('------------ ignored:', 'Has no superclass.');
+      consoleLog('    > Ignored:', 'Has no superclass.');
       return;
     }
 
     // @todo Very naive implementation, handle also extends of React.Component
     if (!isSuperClassSupported(superClass)) {
-      consoleLog('------------ ignored:', 'Is not extending supported superclass.');
+      consoleLog('    > Ignored:', 'Is not extending supported superclass.');
       return;
     }
 
@@ -206,7 +204,7 @@ export default function ({ types: t }) {
     }
 
     convertedClassNames.push(newClassName);
-    consoleLog('injected:', className)
+    consoleLog('    > Injected!'.green)
 
     path.node.declaration.id.name = newClassName;
 
@@ -255,28 +253,28 @@ export default function ({ types: t }) {
       return false;
     }
 
-    const { name } = declarations[0].id;
+    const {name} = declarations[0].id;
     const init = declarations[0].init;
 
-    consoleLog('------ class:', name);
+    consoleLog('  > Object:', name.yellow);
 
     // If the first letter of function is capital, then we consider it as a react component.
     // First, check first letter of name is capital.
     if (name[0] !== name[0].toUpperCase()) {
-      consoleLog('------------ ignored:', 'Is not camelcase');
+      consoleLog('    > Ignored:'.grey, 'Is not camelcase'.grey);
       return false;
     }
 
     // then, init part must be an arrow function.
     if (!t.isArrowFunctionExpression(init)) {
-      consoleLog('------------ ignored:', 'Is not arrow function');
+      consoleLog('    > Ignored:'.grey, 'Is not arrow function'.grey);
       return false;
     }
 
-    const { body } = init;
+    const {body} = init;
     // @todo support also JSX no-return (arrow) statement, .e.g. const x = () => (<p>hello</p>)
     if (!t.isBlockStatement(body)) {
-      consoleLog('------------ ignored:', 'has no block statement');
+      consoleLog('    > Ignored:'.grey, 'Has no block statement'.grey);
       return;
     }
 
@@ -285,7 +283,7 @@ export default function ({ types: t }) {
 
     if (!t.isReturnStatement(lastStatement)) {
       // @todo Support more returns, e.g. if (1==1) { return (<p>X</p>) } else { return (<p>Y</p>) }
-      consoleLog('------------ ignored:', 'has no return statement at the end.');
+      consoleLog('    > Ignored:'.grey, 'Has no return statement at the end.'.grey);
       return false;
     }
 
@@ -323,7 +321,7 @@ export default function ({ types: t }) {
       )
     );
 
-    consoleLog('injected:', className);
+    consoleLog('    > Injected!'.green)
 
     if (!importSet) {
       path.insertBefore(
@@ -379,9 +377,23 @@ export default function ({ types: t }) {
     ); // result: this.props
 
     return classType == CLASS_TYPES.CLASS ? thisProps : t.identifier('typeof props != \'undefined\' ? props.intl.formatMessage : null');
+
   }
 
-  function consoleLog(text) {
+  function propertiesToObject(properties) {
+    let result = {};
+
+    properties.forEach(property => {
+      const {name} = property.key;
+      const {value} = property.value;
+
+      result[name] = value;
+    })
+
+    return result;
+  }
+
+  function consoleLog() {
     if (developmentMode) {
       const args = Array.prototype.slice.call(arguments)
       console.log.apply(this, args)
@@ -392,11 +404,14 @@ export default function ({ types: t }) {
     visitor: {
       Program: {
         enter(path, state) {
+          const {file, opts} = state;
+          const {basename, filename} = file.opts;
+
+          consoleLog('>', filename)
+
           state.reactIntl = {
             messages: new Map(),
           };
-
-          const { opts } = state;
 
           importSet = false;
           convertedClassNames = [];
@@ -480,10 +495,9 @@ export default function ({ types: t }) {
 
       JSXOpeningElement(path, state) {
         const {file, opts} = state;
-        const moduleSourceName = getModuleSourceName(opts, DEFAULT_REACT_INTL_SOURCE_NAME);
         const name = path.get('name');
 
-        if (name.referencesImport(moduleSourceName, 'FormattedPlural')) {
+        if (name.referencesImport(DEFAULT_REACT_INTL_SOURCE_NAME, 'FormattedPlural')) {
           file.log.warn(
             `[React Intl] Line ${path.node.loc.start.line}: ` +
             'Default messages are not extracted from ' +
@@ -493,7 +507,7 @@ export default function ({ types: t }) {
           return;
         }
 
-        if (referencesImport(name, moduleSourceName, COMPONENT_NAMES)) {
+        if (referencesImport(name, DEFAULT_REACT_INTL_SOURCE_NAME, COMPONENT_NAMES)) {
           let attributes = path.get('attributes');
           const idAttribute = getJSXAttributeById(path, 'id');
           const descriptionAttribute = getJSXAttributeById(path, 'description');
@@ -520,10 +534,34 @@ export default function ({ types: t }) {
       },
 
       CallExpression(path, state) {
-        let moduleSourceName = getModuleSourceName(state.opts);
         const callee = path.get('callee');
 
-        if (referencesImport(callee, moduleSourceName, FUNCTION_NAMES)) {
+        if (referencesImport(callee, DEFINE_MESSAGES_MODULE_SOURCE_NAME, [DEFINE_MESSAGES_FUNCTION_NAME])) {
+          consoleLog('  > Static definitions found!');
+          const args = path.node.arguments;
+
+          if (args.length === 0) {
+            throw path.buildCodeFrameError(
+              `[React Intl] defineMessages has exactly one argument.`
+            );
+          }
+
+          const messagesObj = head(args)
+          if (!t.isObjectExpression(messagesObj)) {
+            throw path.buildCodeFrameError(
+              `[React Intl] defineMessages - Argument to this method must be object expression.`
+            );
+          }
+
+          const {properties} = messagesObj;
+          properties.forEach(property => {
+            const {id, description} = propertiesToObject(property.value.properties);
+
+            storeMessage({id, description}, path, state);
+          }, this)
+        }
+
+        if (referencesImport(callee, TRANSLATE_MODULE_SOURCE_NAME, [TRANSLATE_FUNCTION_NAME])) {
           const args = path.node.arguments;
 
           // Automatically completes missing parameters.
