@@ -38,6 +38,26 @@ let classType = null;
 
 const developmentMode = process.env['NODE_ENV'] === 'development';
 
+/**
+ * @desc
+ * Parses expression and tries to convert it into string.
+ *
+ * Supports string concatenation
+ *
+ * @param arg
+ * @returns {*}
+ */
+function getStringFromExpression(t, arg) {
+  if (t.isBinaryExpression(arg)) {
+    // Now we support just simple string concatenation ( 'a' + 'c' )
+    if (arg.operator === '+') {
+      return getStringFromExpression(t, arg.left) + getStringFromExpression(t, arg.right)
+    }
+  } else if (t.isStringLiteral(arg)) {
+    return arg.value
+  }
+}
+
 export default function ({types: t}) {
 
   function storeMessage({id, description}, path, state) {
@@ -380,12 +400,12 @@ export default function ({types: t}) {
 
   }
 
-  function propertiesToObject(properties) {
+  function propertiesToObject(t, properties) {
     let result = {};
 
     properties.forEach(property => {
       const {name} = property.key;
-      const {value} = property.value;
+      const value = getStringFromExpression(t, property.value)
 
       result[name] = value;
     })
@@ -555,7 +575,7 @@ export default function ({types: t}) {
 
           const {properties} = messagesObj;
           properties.forEach(property => {
-            const {id, description} = propertiesToObject(property.value.properties);
+            const {id, description} = propertiesToObject(t, property.value.properties);
 
             storeMessage({id, description}, path, state);
           }, this)
@@ -563,6 +583,9 @@ export default function ({types: t}) {
 
         if (referencesImport(callee, TRANSLATE_MODULE_SOURCE_NAME, [TRANSLATE_FUNCTION_NAME])) {
           const args = path.node.arguments;
+
+          const stringValue = getStringFromExpression(t, args[0])
+          args[0] = t.stringLiteral(stringValue)
 
           // Automatically completes missing parameters.
           if (args.length < 2) {
