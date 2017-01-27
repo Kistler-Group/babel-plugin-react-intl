@@ -192,12 +192,11 @@ export default function ({types: t}) {
   function processClassComponent(path, state) {
     const declaration = path.node.declaration;
 
-    if (!declaration.id) {
-      // @todo Support also 'export default class'..
-      return;
+    let className = 'TempClass'
+    if (declaration.id) {
+      className = declaration.id.name;
     }
 
-    const className = declaration.id.name;
     const newClassName = '_' + className;
 
     // We can't inject react-intl into our base component, it's used for extending other (injected) classes.
@@ -226,7 +225,7 @@ export default function ({types: t}) {
     convertedClassNames.push(newClassName);
     consoleLog('    > Injected!'.green)
 
-    path.node.declaration.id.name = newClassName;
+    path.node.declaration.id = t.identifier(newClassName);
 
     if (!importSet) {
       path.insertBefore(
@@ -267,31 +266,41 @@ export default function ({types: t}) {
     );
   }
 
-  function isReactComponent(path) {
-    const declarations = path.node.declaration.declarations;
-    if (!declarations) {
-      return false;
+  function isSupportedComponent(path) {
+    const { node } = path
+    const { declaration } = node
+    let body
+
+    if (t.isVariableDeclaration(declaration)) {
+      // Named function: export const Xyz = .....
+
+      const { declarations } = declaration;
+      const { name } = declarations[0].id;
+      const initPart = declarations[0].init;
+
+      body = initPart.body
+
+      consoleLog('  > Object:', name.yellow);
+
+      // If the first letter of function is capital, then we consider it as a react component.
+      // First, check first letter of name is capital.
+      if (name[0] !== name[0].toUpperCase()) {
+        consoleLog('    > Ignored:'.grey, 'Is not camelcase'.grey);
+
+        return false;
+      }
+
+      // then, init part must be an arrow function.
+      if (!t.isArrowFunctionExpression(initPart)) {
+        consoleLog('    > Ignored:'.grey, 'Is not arrow function'.grey);
+        return false;
+      }
+
+    } else if (t.isArrowFunctionExpression(declaration)) {
+      // Nameless function: export default () => .....
+      body = declaration.body
     }
 
-    const {name} = declarations[0].id;
-    const init = declarations[0].init;
-
-    consoleLog('  > Object:', name.yellow);
-
-    // If the first letter of function is capital, then we consider it as a react component.
-    // First, check first letter of name is capital.
-    if (name[0] !== name[0].toUpperCase()) {
-      consoleLog('    > Ignored:'.grey, 'Is not camelcase'.grey);
-      return false;
-    }
-
-    // then, init part must be an arrow function.
-    if (!t.isArrowFunctionExpression(init)) {
-      consoleLog('    > Ignored:'.grey, 'Is not arrow function'.grey);
-      return false;
-    }
-
-    const {body} = init;
     // @todo support also JSX no-return (arrow) statement, .e.g. const x = () => (<p>hello</p>)
     if (!t.isBlockStatement(body)) {
       consoleLog('    > Ignored:'.grey, 'Has no block statement'.grey);
@@ -311,12 +320,22 @@ export default function ({types: t}) {
   }
 
   function processStatelessComponent(path, state) {
-    if (!isReactComponent(path)) {
+    if (!isSupportedComponent(path)) {
       return;
     }
 
-    const funcDeclaration = path.node.declaration.declarations[0];
-    const className = funcDeclaration.id.name;
+    const { node } = path
+    const { declaration } = node
+    let className = 'TempObj'
+    let funcDeclaration
+
+    if (t.isVariableDeclaration(declaration)) {
+      funcDeclaration = path.node.declaration.declarations[0]
+      className = funcDeclaration.id.name
+    } else if (t.isArrowFunctionExpression(declaration)) {
+      funcDeclaration = t.variableDeclarator(t.identifier(className), path.node.declaration)
+    }
+
     const newClassName = '_' + className;
 
     if (includes(convertedClassNames, className)) {
@@ -326,7 +345,8 @@ export default function ({types: t}) {
     convertedClassNames.push(newClassName);
     convertedClassNames.push(className);
 
-    funcDeclaration.id.name = newClassName;
+    // funcDeclaration.id = t.stringLiteral(newClassName)
+    funcDeclaration.id = t.identifier(newClassName)
 
     path.replaceWith(
       t.exportNamedDeclaration(
@@ -497,8 +517,16 @@ export default function ({types: t}) {
       ImportDeclaration(path, state) {
       },
 
-      ExportDeclaration(path, state) {
-        // @todo Implement!
+      ExportDefaultDeclaration(path, state) {
+        const { declaration } = path.node;
+
+        if (t.isClassDeclaration(declaration)) {
+          classType = CLASS_TYPES.CLASS;
+          processClassComponent(path, state);
+        } else if (t.isArrowFunctionExpression(declaration)) {
+          classType = CLASS_TYPES.STATELESS_FUNCTION;
+          processStatelessComponent(path, state);
+        }
       },
 
       ExportNamedDeclaration(path, state) {
